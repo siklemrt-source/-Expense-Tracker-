@@ -1,218 +1,372 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[codz]
-*$py.class
+import tkinter as tk
+from tkinter import ttk, messagebox
+import json
+import os
+from datetime import datetime
+import re
 
-# C extensions
-*.so
+class ExpenseTracker:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Expense Tracker - Трекер расходов")
+        self.root.geometry("900x700")
+        self.root.resizable(True, True)
+        
+        # Файл для хранения данных
+        self.data_file = "expenses.json"
+        self.expenses = self.load_expenses()
+        
+        # Настройка интерфейса
+        self.setup_ui()
+        self.refresh_expense_list()
+        self.update_total_sum()
+    
+    def setup_ui(self):
+        # Основной контейнер с вкладками
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Вкладка "Добавление расходов"
+        self.add_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.add_frame, text="➕ Добавить расход")
+        self.setup_add_expense_tab()
+        
+        # Вкладка "Просмотр и фильтрация"
+        self.view_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.view_frame, text=" Просмотр расходов")
+        self.setup_view_tab()
+        
+        # Вкладка "Статистика"
+        self.stats_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.stats_frame, text=" Статистика")
+        self.setup_stats_tab()
+    
+    def setup_add_expense_tab(self):
+        # Рамка для ввода
+        input_frame = ttk.LabelFrame(self.add_frame, text="Информация о расходе", padding=20)
+        input_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Поле Сумма
+        ttk.Label(input_frame, text=" Сумма (руб):", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=10)
+        self.amount_entry = ttk.Entry(input_frame, width=30, font=("Arial", 11))
+        self.amount_entry.grid(row=0, column=1, padx=10, pady=10)
+        ttk.Label(input_frame, text="(положительное число, например: 350.50)", foreground="gray").grid(row=0, column=2, padx=10, pady=10)
+        
+        # Поле Категория
+        ttk.Label(input_frame, text=" Категория:", font=("Arial", 10, "bold")).grid(row=1, column=0, sticky="w", padx=10, pady=10)
+        self.category_var = tk.StringVar()
+        categories = ["Еда", "Транспорт", "Развлечения", "Здоровье", "Жильё", "Одежда", "Образование", "Другое"]
+        self.category_combo = ttk.Combobox(input_frame, textvariable=self.category_var, values=categories, width=27, font=("Arial", 11))
+        self.category_combo.grid(row=1, column=1, padx=10, pady=10)
+        self.category_combo.current(0)
+        
+        # Поле Дата
+        ttk.Label(input_frame, text=" Дата:", font=("Arial", 10, "bold")).grid(row=2, column=0, sticky="w", padx=10, pady=10)
+        self.date_entry = ttk.Entry(input_frame, width=30, font=("Arial", 11))
+        self.date_entry.grid(row=2, column=1, padx=10, pady=10)
+        self.date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        ttk.Label(input_frame, text="(формат: ГГГГ-ММ-ДД)", foreground="gray").grid(row=2, column=2, padx=10, pady=10)
+        
+        # Поле Описание (опционально)
+        ttk.Label(input_frame, text=" Описание:", font=("Arial", 10, "bold")).grid(row=3, column=0, sticky="w", padx=10, pady=10)
+        self.desc_entry = ttk.Entry(input_frame, width=68, font=("Arial", 11))
+        self.desc_entry.grid(row=3, column=1, columnspan=2, padx=10, pady=10)
+        
+        # Кнопка добавления
+        btn_frame = ttk.Frame(input_frame)
+        btn_frame.grid(row=4, column=0, columnspan=3, pady=20)
+        
+        ttk.Button(btn_frame, text="Добавить расход", command=self.add_expense, width=20).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="Очистить поля", command=self.clear_inputs, width=20).pack(side="left", padx=10)
+    
+    def setup_view_tab(self):
+        # Рамка фильтров
+        filter_frame = ttk.LabelFrame(self.view_frame, text="Фильтрация расходов", padding=15)
+        filter_frame.pack(fill="x", padx=10, pady=10)
+        
+        # Фильтр по категории
+        ttk.Label(filter_frame, text="Категория:").grid(row=0, column=0, padx=5, pady=5)
+        self.filter_category = ttk.Combobox(filter_frame, values=["Все"] + ["Еда", "Транспорт", "Развлечения", "Здоровье", "Жильё", "Одежда", "Образование", "Другое"], width=20)
+        self.filter_category.grid(row=0, column=1, padx=5, pady=5)
+        self.filter_category.current(0)
+        
+        # Фильтр по дате (период)
+        ttk.Label(filter_frame, text="Дата от:").grid(row=0, column=2, padx=5, pady=5)
+        self.date_from = ttk.Entry(filter_frame, width=15)
+        self.date_from.grid(row=0, column=3, padx=5, pady=5)
+        self.date_from.insert(0, datetime.now().strftime("%Y-%m-01"))
+        
+        ttk.Label(filter_frame, text="Дата до:").grid(row=0, column=4, padx=5, pady=5)
+        self.date_to = ttk.Entry(filter_frame, width=15)
+        self.date_to.grid(row=0, column=5, padx=5, pady=5)
+        self.date_to.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        
+        # Кнопки фильтрации
+        btn_filter_frame = ttk.Frame(filter_frame)
+        btn_filter_frame.grid(row=1, column=0, columnspan=6, pady=10)
+        
+        ttk.Button(btn_filter_frame, text=" Применить фильтр", command=self.refresh_expense_list).pack(side="left", padx=5)
+        ttk.Button(btn_filter_frame, text=" Сбросить фильтры", command=self.reset_filters).pack(side="left", padx=5)
+        ttk.Button(btn_filter_frame, text=" Показать сумму за период", command=self.show_period_sum).pack(side="left", padx=5)
+        
+        # Таблица расходов
+        table_frame = ttk.LabelFrame(self.view_frame, text="Список расходов", padding=10)
+        table_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        columns = ("ID", "Дата", "Категория", "Сумма (руб)", "Описание")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=20)
+        
+        # Настройка колонок
+        self.tree.heading("ID", text="ID")
+        self.tree.column("ID", width=50)
+        self.tree.heading("Дата", text="Дата")
+        self.tree.column("Дата", width=100)
+        self.tree.heading("Категория", text="Категория")
+        self.tree.column("Категория", width=120)
+        self.tree.heading("Сумма (руб)", text="Сумма (руб)")
+        self.tree.column("Сумма (руб)", width=120)
+        self.tree.heading("Описание", text="Описание")
+        self.tree.column("Описание", width=400)
+        
+        # Скроллбар
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Кнопка удаления
+        delete_frame = ttk.Frame(self.view_frame)
+        delete_frame.pack(fill="x", padx=10, pady=5)
+        ttk.Button(delete_frame, text="Удалить выбранный расход", command=self.delete_expense).pack()
+    
+    def setup_stats_tab(self):
+        stats_frame = ttk.LabelFrame(self.stats_frame, text="Общая статистика", padding=20)
+        stats_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Общая сумма
+        self.total_sum_label = ttk.Label(stats_frame, text="Общая сумма расходов: 0.00 руб", font=("Arial", 14, "bold"))
+        self.total_sum_label.pack(pady=10)
+        
+        # Статистика по категориям
+        ttk.Label(stats_frame, text="Расходы по категориям:", font=("Arial", 12, "bold")).pack(pady=10)
+        
+        self.stats_text = tk.Text(stats_frame, height=15, width=50, font=("Courier", 10))
+        self.stats_text.pack(pady=10)
+        
+        ttk.Button(stats_frame, text="Обновить статистику", command=self.update_statistics).pack(pady=10)
+    
+    def validate_amount(self, amount_str):
+        """Проверка корректности суммы"""
+        try:
+            amount = float(amount_str)
+            if amount <= 0:
+                messagebox.showerror("Ошибка", "Сумма должна быть положительным числом!")
+                return False
+            return True
+        except ValueError:
+            messagebox.showerror("Ошибка", "Введите корректное число в поле 'Сумма'!")
+            return False
+    
+    def validate_date(self, date_str):
+        """Проверка корректности даты"""
+        pattern = r'^\d{4}-\d{2}-\d{2}$'
+        if not re.match(pattern, date_str):
+            messagebox.showerror("Ошибка", "Дата должна быть в формате ГГГГ-ММ-ДД (например: 2026-05-05)")
+            return False
+        
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+            return True
+        except ValueError:
+            messagebox.showerror("Ошибка", "Некорректная дата! Проверьте день и месяц.")
+            return False
+    
+    def add_expense(self):
+        """Добавление нового расхода"""
+        # Получение и валидация данных
+        amount_str = self.amount_entry.get().strip()
+        if not self.validate_amount(amount_str):
+            return
+        
+        amount = float(amount_str)
+        category = self.category_var.get()
+        date = self.date_entry.get().strip()
+        
+        if not self.validate_date(date):
+            return
+        
+        description = self.desc_entry.get().strip()
+        
+        # Создание ID
+        expense_id = max([e["id"] for e in self.expenses] + [0]) + 1
+        
+        # Добавление расхода
+        expense = {
+            "id": expense_id,
+            "amount": amount,
+            "category": category,
+            "date": date,
+            "description": description
+        }
+        
+        self.expenses.append(expense)
+        self.save_expenses()
+        self.clear_inputs()
+        self.refresh_expense_list()
+        self.update_total_sum()
+        self.update_statistics()
+        
+        messagebox.showinfo("Успех", f"Расход на сумму {amount:.2f} руб добавлен!")
+    
+    def delete_expense(self):
+        """Удаление выбранного расхода"""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите расход для удаления")
+            return
+        
+        item = self.tree.item(selected[0])
+        expense_id = int(item['values'][0])
+        
+        if messagebox.askyesno("Подтверждение", "Удалить выбранный расход?"):
+            self.expenses = [e for e in self.expenses if e["id"] != expense_id]
+            self.save_expenses()
+            self.refresh_expense_list()
+            self.update_total_sum()
+            self.update_statistics()
+            messagebox.showinfo("Успех", "Расход удалён")
+    
+    def refresh_expense_list(self):
+        """Обновление таблицы с учётом фильтров"""
+        # Очистка таблицы
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        # Фильтрация
+        filtered = self.expenses[:]
+        
+        # Фильтр по категории
+        cat_filter = self.filter_category.get()
+        if cat_filter != "Все":
+            filtered = [e for e in filtered if e["category"] == cat_filter]
+        
+        # Фильтр по дате (период)
+        date_from = self.date_from.get().strip()
+        date_to = self.date_to.get().strip()
+        
+        if date_from and date_to:
+            try:
+                from_date = datetime.strptime(date_from, "%Y-%m-%d")
+                to_date = datetime.strptime(date_to, "%Y-%m-%d")
+                filtered = [e for e in filtered if from_date <= datetime.strptime(e["date"], "%Y-%m-%d") <= to_date]
+            except ValueError:
+                pass  # Если даты некорректны, игнорируем фильтр
+        
+        # Сортировка по дате (новые сверху)
+        filtered.sort(key=lambda x: x["date"], reverse=True)
+        
+        # Отображение
+        for expense in filtered:
+            self.tree.insert("", tk.END, values=(
+                expense["id"],
+                expense["date"],
+                expense["category"],
+                f"{expense['amount']:.2f}",
+                expense["description"] if expense["description"] else "-"
+            ))
+    
+    def show_period_sum(self):
+        """Подсчёт суммы за выбранный период"""
+        date_from = self.date_from.get().strip()
+        date_to = self.date_to.get().strip()
+        
+        if not date_from or not date_to:
+            messagebox.showwarning("Предупреждение", "Укажите начальную и конечную дату периода")
+            return
+        
+        try:
+            from_date = datetime.strptime(date_from, "%Y-%m-%d")
+            to_date = datetime.strptime(date_to, "%Y-%m-%d")
+            
+            period_expenses = [e for e in self.expenses 
+                              if from_date <= datetime.strptime(e["date"], "%Y-%m-%d") <= to_date]
+            
+            total = sum(e["amount"] for e in period_expenses)
+            
+            messagebox.showinfo("Сумма за период", 
+                               f" Статистика за период {date_from} — {date_to}\n\n"
+                               f" Общая сумма расходов: {total:.2f} руб\n"
+                               f" Количество операций: {len(period_expenses)}")
+        except ValueError:
+            messagebox.showerror("Ошибка", "Некорректный формат даты!")
+    
+    def reset_filters(self):
+        """Сброс всех фильтров"""
+        self.filter_category.current(0)
+        self.date_from.delete(0, tk.END)
+        self.date_from.insert(0, datetime.now().strftime("%Y-%m-01"))
+        self.date_to.delete(0, tk.END)
+        self.date_to.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        self.refresh_expense_list()
+    
+    def update_total_sum(self):
+        """Обновление общей суммы"""
+        total = sum(e["amount"] for e in self.expenses)
+        self.total_sum_label.config(text=f"Общая сумма расходов: {total:.2f} руб")
+    
+    def update_statistics(self):
+        """Обновление статистики по категориям"""
+        self.stats_text.delete(1.0, tk.END)
+        
+        if not self.expenses:
+            self.stats_text.insert(1.0, "Нет данных для отображения")
+            return
+        
+        # Группировка по категориям
+        categories_stats = {}
+        for expense in self.expenses:
+            cat = expense["category"]
+            categories_stats[cat] = categories_stats.get(cat, 0) + expense["amount"]
+        
+        # Сортировка по сумме
+        sorted_stats = sorted(categories_stats.items(), key=lambda x: x[1], reverse=True)
+        
+        # Форматирование вывода
+        stats_text = "📊 РАСХОДЫ ПО КАТЕГОРИЯМ \n\n"
+        for cat, amount in sorted_stats:
+            stats_text += f"{cat:12} : {amount:>10.2f} руб\n"
+        
+        total = sum(categories_stats.values())
+        stats_text += f"\n{'='*30}\n"
+        stats_text += f"{'ИТОГО':12} : {total:>10.2f} руб\n"
+        
+        self.stats_text.insert(1.0, stats_text)
+    
+    def clear_inputs(self):
+        """Очистка полей ввода"""
+        self.amount_entry.delete(0, tk.END)
+        self.category_combo.current(0)
+        self.date_entry.delete(0, tk.END)
+        self.date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        self.desc_entry.delete(0, tk.END)
+    
+    def load_expenses(self):
+        """Загрузка данных из JSON"""
+        if os.path.exists(self.data_file):
+            try:
+                with open(self.data_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                return []
+        return []
+    
+    def save_expenses(self):
+        """Сохранение данных в JSON"""
+        with open(self.data_file, "w", encoding="utf-8") as f:
+            json.dump(self.expenses, f, ensure_ascii=False, indent=2)
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# PyInstaller
-#   Usually these files are written by a python script from a template
-#   before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py.cover
-.hypothesis/
-.pytest_cache/
-cover/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
-
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-# Pipfile.lock
-
-# UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-# uv.lock
-
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-# poetry.lock
-# poetry.toml
-
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#   pdm recommends including project-wide configuration in pdm.toml, but excluding .pdm-python.
-#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
-# pdm.lock
-# pdm.toml
-.pdm-python
-.pdm-build/
-
-# pixi
-#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
-# pixi.lock
-#   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
-#   in the .venv directory. It is recommended not to include this directory in version control.
-.pixi
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# Redis
-*.rdb
-*.aof
-*.pid
-
-# RabbitMQ
-mnesia/
-rabbitmq/
-rabbitmq-data/
-
-# ActiveMQ
-activemq-data/
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm
-#   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#   and can be added to the global gitignore or merged into this file.  For a more nuclear
-#   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
-
-# Abstra
-#   Abstra is an AI-powered process automation framework.
-#   Ignore directories containing user credentials, local state, and settings.
-#   Learn more at https://abstra.io/docs
-.abstra/
-
-# Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
-#   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
-#   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
-# Temporary file for partial code execution
-tempCodeRunnerFile.py
-
-# Ruff stuff:
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# Streamlit
-.streamlit/secrets.toml
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ExpenseTracker(root)
+    root.mainloop()
